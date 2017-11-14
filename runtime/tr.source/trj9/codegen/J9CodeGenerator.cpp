@@ -2295,6 +2295,7 @@ J9::CodeGenerator::populateOSRBuffer()
 */
 
    TR::Block * block = NULL;
+   int numOfTreesBeforePrepareCall = 0;
    for(TR::TreeTop * tt = self()->comp()->getStartTree(); tt; tt = tt->getNextTreeTop())
       {
       // Write pending pushes, parms, and locals to vmthread's OSR buffer
@@ -2303,8 +2304,11 @@ J9::CodeGenerator::populateOSRBuffer()
       if (n->getOpCodeValue() == TR::BBStart)
          {
          block = n->getBlock();
+         numOfTreesBeforePrepareCall = 0;
          continue;
          }
+      numOfTreesBeforePrepareCall++;
+      traceMsg(self()->comp(), "numOfTreesBeforePrepareCall %d node %p\n", numOfTreesBeforePrepareCall, n);;
       if (n->getOpCodeValue() == TR::treetop && n->getNumChildren() == 1)
          n = n->getFirstChild();
       else
@@ -2388,6 +2392,14 @@ J9::CodeGenerator::populateOSRBuffer()
             }
          }
 
+      /*
+       * dead slots are also bookkept together with shared slots under voluntary OSR
+       * make this number larger than 0 to indicate the existence of entries for
+       * dead slots
+       */
+      if (osrMethodData->hasSlotSharingOrDeadSlotsInfo() && numOfSymsThatShareSlot == 0) 
+         numOfSymsThatShareSlot++;
+
       osrMethodData->setNumOfSymsThatShareSlot(numOfSymsThatShareSlot);
       maxScratchBufferSize = (maxScratchBufferSize > scratchBufferOffset) ? maxScratchBufferSize : scratchBufferOffset;
 
@@ -2402,6 +2414,7 @@ J9::CodeGenerator::populateOSRBuffer()
       //The OSR helper call will print the contents of the OSR buffer (if trace option is on)
       //and populate the OSR buffer with the correct values of the shared slots (if there is any)
       bool emitCall = false;
+
       if ((numOfSymsThatShareSlot > 0) ||
           self()->comp()->getOption(TR_EnablePrepareForOSREvenIfThatDoesNothing))
          emitCall = true;
@@ -2441,7 +2454,21 @@ J9::CodeGenerator::populateOSRBuffer()
             )
          );
       insertionPoint->insertTreeTopsAfterMe(osrFrameIndexAdvanceTreeTop);
+
+   
+      if (numOfTreesBeforePrepareCall > 1)
+         {
+         traceMsg(self()->comp(), "there is treetop before the prepareCall\n");;
+         TR::DebugCounter::incStaticDebugCounter(self()->comp(), TR::DebugCounter::debugCounterName(self()->comp(),
+            "OSRCodeBlockShape/bad/%s/%d/%d", self()->comp()->signature(), callNode->getByteCodeInfo().getCallerIndex(), callNode->getByteCodeInfo().getByteCodeIndex()));
+         }
+      else
+         {
+         TR::DebugCounter::incStaticDebugCounter(self()->comp(), TR::DebugCounter::debugCounterName(self()->comp(),
+            "OSRCodeBlockShape/good/%s/%d/%d", self()->comp()->signature(), callNode->getByteCodeInfo().getCallerIndex(), callNode->getByteCodeInfo().getByteCodeIndex()));
+         }
       }
+
 
    for (int32_t i = 0; i < methodDataArray.size(); i++)
       {

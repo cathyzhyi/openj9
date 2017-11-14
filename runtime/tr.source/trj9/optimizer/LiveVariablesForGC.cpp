@@ -233,6 +233,9 @@ int32_t TR_GlobalLiveVariablesForGC::perform()
 
    TR_BitVector *liveVars = NULL;
 
+   if (comp()->getOSRMode() == TR::involuntaryOSR) 
+      comp()->getOSRCompilationData()->buildDefiningMap();
+
    if ((comp()->getOption(TR_EnableOSR) && (comp()->getHCRMode() == TR::osr || comp()->getOption(TR_FullSpeedDebug))) || !cg()->getLiveLocals()) // under OSR existing live locals is likely computed without ignoring OSR uses
       {
       // Perform liveness analysis
@@ -242,11 +245,29 @@ int32_t TR_GlobalLiveVariablesForGC::perform()
        * autos sharing the same slot in interperter might end up with overlapped
        * live range if OSRUses are not ignored
        */
+
       if (comp()->getOption(TR_MimicInterpreterFrameShape)) 
          ignoreOSRuses = true;
 
-      TR_Liveness liveLocals(comp(), optimizer(), comp()->getFlowGraph()->getStructure(), ignoreOSRuses, NULL, false, comp()->getOption(TR_EnableAggressiveLiveness));
+      TR_OSRLiveVariableInformation *liveVariableInfo = NULL;
+      TR_Structure *rootStructure = comp()->getFlowGraph()->getStructure();
+      bool splitLongs = false;
+      bool includeParms = comp()->getOption(TR_EnableAggressiveLiveness);
+      static const char* disableOSRPointDeadslotsBookKeeping = feGetEnv("TR_DisableOSRPointDeadslotsBookKeeping");
 
+      if (comp()->getOption(TR_FullSpeedDebug) && !disableOSRPointDeadslotsBookKeeping && comp()->canBookkeepDeadSlotsForOSRPoint())
+         {
+         ignoreOSRuses = true;
+         liveVariableInfo = new (trStackMemory()) TR_OSRLiveVariableInformation(comp(),
+                                                                                optimizer(),
+                                                                                rootStructure,
+                                                                                splitLongs,
+                                                                                includeParms,
+                                                                                false /*includeMethodMetaDataSymbols*/,
+                                                                                ignoreOSRuses);
+         }
+                   
+      TR_Liveness liveLocals(comp(), optimizer(), rootStructure, ignoreOSRuses, liveVariableInfo, splitLongs, includeParms);
       for (TR::CFGNode *cfgNode = comp()->getFlowGraph()->getFirstNode(); cfgNode; cfgNode = cfgNode->getNext())
          {
          TR::Block *block     = toBlock(cfgNode);
@@ -279,7 +300,10 @@ int32_t TR_GlobalLiveVariablesForGC::perform()
              liveVars->get(p->getLiveLocalIndex()))
             {
             if (performTransformation(comp(), "%s Local #%d is live at the start of the method\n",OPT_DETAILS, p->getLiveLocalIndex()))
+               {
                p->setUninitializedReference();
+               TR::DebugCounter::incStaticDebugCounter(comp(), TR::DebugCounter::debugCounterName(comp(), "uninitializedVariable/%s", comp()->signature()));
+               }
             }
          }
       }
