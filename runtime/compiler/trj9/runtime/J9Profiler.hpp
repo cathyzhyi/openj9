@@ -38,6 +38,7 @@
 #include "optimizer/OptimizationManager.hpp"  // for OptimizationManager
 #include "env/VMJ9.h"
 #include "infra/TRlist.hpp"
+#include "infra/deque.hpp"
 #include "runtime/J9ValueProfiler.hpp"
 
 #define PROFILING_INVOCATION_COUNT (2)
@@ -121,7 +122,9 @@ class TR_PersistentProfileInfo
         _callSiteInfo(NULL),
         _next(NULL),
         _active(false),
-        _refCount(1)
+        _refCount(1),
+        _insts(NULL),
+        _patchSitesLen(0)
       {
       for (int i=0; i < PROFILING_INVOCATION_COUNT; i++)
          {
@@ -158,8 +161,12 @@ class TR_PersistentProfileInfo
    void    setProfilingCount(int32_t *c) {for (int i=0; i<PROFILING_INVOCATION_COUNT; i++) _profilingCount[i] = c[i];}
    int32_t getMaxCount() { return _maxCount;}
 
-   void setActive(bool active = true) { _active = active; }
+   void setActive(bool active = true);
    bool isActive() { return _active; }
+   size_t offsetOfActive() { return offsetof(TR_PersistentProfileInfo, _active); }
+
+   void addPatchPoint(TR::Compilation *comp, TR::Instruction *inst);
+   void extractPatchPoints(TR::Compilation *comp);
 
    TR_CatchBlockProfileInfo *getCatchBlockProfileInfo() {return _catchBlockProfileInfo;}
    TR_CatchBlockProfileInfo *findOrCreateCatchBlockProfileInfo(TR::Compilation *comp);
@@ -175,6 +182,16 @@ class TR_PersistentProfileInfo
    void dumpInfo(TR::FILE *);
 
    private:
+   struct PatchJMP
+      {
+      uint8_t *address;
+      uint64_t jmpInstr;
+      uint64_t nopInstr;
+      };
+
+   TR::deque<TR::Instruction*, TR::Region&> *_insts;
+   size_t _patchSitesLen;
+   PatchJMP *_patchSites;
 
    void prepareForProfiling(TR::Compilation *comp);
 

@@ -24,6 +24,7 @@
 #include <string.h>                               // for memset, strncmp, etc
 #include "AtomicSupport.hpp"
 #include "codegen/CodeGenerator.hpp"              // for CodeGenerator
+#include "codegen/Instruction.hpp"
 #include "codegen/LinkageConventionsEnum.hpp"
 #include "codegen/RecognizedMethods.hpp"
 #include "compile/Compilation.hpp"                // for Compilation
@@ -2448,6 +2449,74 @@ TR_PersistentProfileInfo::decRefCount(TR_PersistentProfileInfo *info)
       info->~TR_PersistentProfileInfo();
       TR_Memory::jitPersistentFree(info);
       }
+   }
+
+/**
+ * This method will behave differently depending on when it is called.
+ * If called during the compilation, it will toggle the active flag as desired.
+ * If called during execution of the body, it will also patch any profiling points
+ * registered with it.
+ */
+void
+TR_PersistentProfileInfo::setActive(bool active)
+   {
+   _active = active;
+   if (!active || _patchSitesLen == 0)
+      return;
+   for (size_t i = 0; i < _patchSitesLen; ++i)
+      {
+      if (active)
+         *((uint64_t*)_patchSites[i].address) = _patchSites[i].nopInstr;
+      else
+         *((uint64_t*)_patchSites[i].address) = _patchSites[i].jmpInstr;
+      }
+   }
+
+/**
+ * Add a jmp instruction to patch
+ */
+void
+TR_PersistentProfileInfo::addPatchPoint(TR::Compilation *comp, TR::Instruction *inst)
+   {
+   if (!_insts)
+      _insts = new (comp->trMemory()->heapMemoryRegion()) TR::deque<TR::Instruction*, TR::Region&>(comp->trMemory()->heapMemoryRegion());
+   _insts->push_back(inst);
+   }
+
+/**
+ * This method will extract patch points from the built up list of 
+ * patchable instructions.
+ */
+void
+TR_PersistentProfileInfo::extractPatchPoints(TR::Compilation *comp)
+   {
+   if (!_insts)
+      return;
+   _patchSitesLen = _insts->size();
+   if (_patchSitesLen == 0)
+      return;
+   _patchSites = new (PERSISTENT_NEW) PatchJMP[_patchSitesLen];
+   for (size_t i = 0; i < _insts->size(); ++i)
+      {
+      _patchSites[i].address = (*_insts)[i]->getBinaryEncoding();
+      _patchSites[i].jmpInstr = *((uint64_t*)_patchSites[i].address);
+      _patchSites[i].nopInstr = *((uint64_t*)_patchSites[i].address);
+      switch ((*_insts)[i]->getBinaryLength())
+         {
+         case 2:
+            _patchSites[i].nopInstr = 0x9066 | (_patchSites[i].nopInstr & 0xFFFFFFFFFFFF0000);
+            break;
+         case 5:
+            _patchSites[i].nopInstr = 0x0000441F0F | (_patchSites[i].nopInstr & 0xFFFFFF0000000000);
+            break;
+         case 6:
+            _patchSites[i].nopInstr = 0x0000441F0F66 | (_patchSites[i].nopInstr & 0xFFFF000000000000);
+            break;
+         default:
+            TR_ASSERT_FATAL(0, "Bad length %d", (*_insts)[i]->getBinaryLength());
+         }
+      }
+   _insts = NULL;
    }
 
 /**

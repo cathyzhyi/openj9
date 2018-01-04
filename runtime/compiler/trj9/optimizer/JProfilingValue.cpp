@@ -231,7 +231,7 @@ TR_JProfilingValue::addProfiling(TR::Node *value, TR::TreeTop *tt)
 
    TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(value->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   addProfilingTrees(comp(), tt, value, info, NULL, NULL, true, trace());
+   addProfilingTrees(comp(), tt, value, info, NULL, NULL, trace());
    }
 
 void
@@ -253,7 +253,7 @@ TR_JProfilingValue::addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool add
 
    TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   addProfilingTrees(comp(), tt, vftNode, info, check, fallback, true, trace());
+   addProfilingTrees(comp(), tt, vftNode, info, check, fallback, trace());
    }
 
 /**
@@ -284,7 +284,7 @@ TR_JProfilingValue::lowerCalls()
          // Extract the arguments and add the profiling trees
          TR::Node *value = child->getFirstChild();
          TR_AbstractHashTableProfilerInfo *table = (TR_AbstractHashTableProfilerInfo*) child->getSecondChild()->getAddress();
-         addProfilingTrees(comp(), cursor, value, table, NULL, NULL, true, trace());
+         addProfilingTrees(comp(), cursor, value, table, NULL, NULL, trace());
 
          // Remove the original trees and continue from the tree after the profiling
          TR::TransformUtil::removeTree(comp(), cursor);
@@ -314,52 +314,57 @@ TR_JProfilingValue::lowerCalls()
  * | ...               |                                        
  * | insertionPoint    |                                        
  * | uncommoning       |
- * | optionalTest      |---------------
- * ---------------------              |
- *          |                         |
- *          v                         v
- * ---------------------    ---------------------                                       
- * | originalValue     |    | fallbackValue     |                                      
- * ---------------------    ---------------------                                      
- * | store temp 1      |    | store temp 1      |                                      
- * |  value            |    |  fallback         |                                      
- * ---------------------    ---------------------
- *          |                        |
- *          |-------------------------
- *          v
- * ---------------------                                        
- * | quickTest         |                                        
- * ---------------------                                        
- * | store temp 2      |                                        
- * |  hash             |                                        
- * |   load temp 1     |                                        
- * | ifne              |----------------------
- * |  =>load temp 1    |                     |
- * |  indirect load    |                     v
- * |   add             |           ---------------------
- * |    keysArray      |           | slowTest          |
- * |    mult           |           ---------------------
- * |     =>hash        |           | store temp 3      |
- * |     width         |           |   indirect load   |
- * ---------------------           |     otherIndex    |
- *          |                      | ifeq              |-------------------
- *          v                      |   load temp 3     |                  |
- * ---------------------           |   const 0         |                  v
- * | quickInc          |           ---------------------        ------------------
- * ---------------------                    |                   | helper         |
- * | incMemory         |                    v                   ------------------
- * |   add             |           ---------------------        | call helper    |
- * |     countsArray   |           | slowInc           |        |   load temp 1  |
- * |     mult          |           ---------------------        |   tableAddress |
- * |       load temp 2 |           | incMemory         |        ------------------
- * |       countWidth  |           |   add             |                 |
- * ---------------------           |     countsArray   |                 |
- *          |                      |     mult          |                 |
- *          |                      |       load temp 3 |                 |
- *          |                      |       countWidth  |                 |
- *          |                      ---------------------                 |
- *          |                                |                           |
- *          |-------------------------------------------------------------
+ * | patchableTest     |------------------------------------------------------------------
+ * ---------------------                                                                 |
+ *          |                                                                            |
+ *          v                                                                            |
+ * ---------------------                                                                 |
+ * | optionalTest      |---------------                                                  |
+ * ---------------------              |                                                  |
+ *          |                         |                                                  |
+ *          v                         v                                                  |
+ * ---------------------    ---------------------                                        |
+ * | originalValue     |    | fallbackValue     |                                        |
+ * ---------------------    ---------------------                                        |
+ * | store temp 1      |    | store temp 1      |                                        |
+ * |  value            |    |  fallback         |                                        |
+ * ---------------------    ---------------------                                        |
+ *          |                        |                                                   |
+ *          |-------------------------                                                   |
+ *          v                                                                            |
+ * ---------------------                                                                 |              
+ * | quickTest         |                                                                 |              
+ * ---------------------                                                                 |              
+ * | store temp 2      |                                                                 |              
+ * |  hash             |                                                                 |
+ * |   load temp 1     |                                                                 |
+ * | ifne              |----------------------                                           |
+ * |  =>load temp 1    |                     |                                           |
+ * |  indirect load    |                     v                                           |
+ * |   add             |           ---------------------                                 |
+ * |    keysArray      |           | slowTest          |                                 |
+ * |    mult           |           ---------------------                                 |
+ * |     =>hash        |           | store temp 3      |                                 |
+ * |     width         |           |   indirect load   |                                 |
+ * ---------------------           |     otherIndex    |                                 |
+ *          |                      | ifeq              |-------------------              |
+ *          v                      |   load temp 3     |                  |              |
+ * ---------------------           |   const 0         |                  v              |
+ * | quickInc          |           ---------------------        ------------------       |
+ * ---------------------                    |                   | helper         |       |
+ * | incMemory         |                    v                   ------------------       |
+ * |   add             |           ---------------------        | call helper    |       |
+ * |     countsArray   |           | slowInc           |        |   load temp 1  |       |
+ * |     mult          |           ---------------------        |   tableAddress |       |
+ * |       load temp 2 |           | incMemory         |        ------------------       |
+ * |       countWidth  |           |   add             |                 |               |
+ * ---------------------           |     countsArray   |                 |               |
+ *          |                      |     mult          |                 |               |
+ *          |                      |       load temp 3 |                 |               |
+ *          |                      |       countWidth  |                 |               |
+ *          |                      ---------------------                 |               |
+ *          |                                |                           |               |
+ *          |-----------------------------------------------------------------------------
  *          v
  * ---------------------
  * | uncommoning       |
@@ -370,7 +375,6 @@ TR_JProfilingValue::lowerCalls()
  * \param table Persistent TR_HashMapInfo which will be filled and incremented during profiling.
  * \param optionalTest Option test node capable of preventing evaluation of value and using a fallbackValue instead.
  * \param fallbackValue Fallback value to use with the optional test.
- * \param extendBlocks Generates the blocks as extended, defaults true.
  * \param trace Enable tracing.
  */
 bool
@@ -381,7 +385,6 @@ TR_JProfilingValue::addProfilingTrees(
     TR_AbstractHashTableProfilerInfo *table,
     TR::Node *optionalTest,
     TR::Node *fallbackValue,
-    bool extendBlocks,
     bool trace)
    {
    // Common types used in calculation
@@ -444,8 +447,18 @@ TR_JProfilingValue::addProfilingTrees(
       replaceNode(comp, extendedBlock->getEntry(), storeValue->getNextTreeTop(),
          value, TR::Node::createLoad(example, storeValue->getNode()->getSymbolReference()));
 
-   // Split after the store
-   TR::Block *quickTest = originalBlock->split(storeValue->getNextTreeTop(), cfg, true, true);
+   /********************* guard *********************/
+
+   TR_PersistentProfileInfo *info = TR_PersistentProfileInfo::getCurrent(comp);
+   TR::Node *infoAddress = TR::Node::aconst(example, ((uintptr_t) info) + info->offsetOfActive());
+   TR::Node *activeFlag = loadValue(comp, TR::Int8, infoAddress, NULL, NULL);
+   TR::Node *checkActive = TR::Node::createif(comp->il.opCodeForIfCompareEquals(TR::Int8), activeFlag,
+      TR::Node::bconst(example, 0));
+   TR::TreeTop *checkActiveTree = TR::TreeTop::create(comp, storeValue, checkActive);
+   checkActive->setIsActiveProfile();
+
+   TR::Block *quickTest = originalBlock->split(checkActiveTree->getNextTreeTop(), cfg, true, true);
+   quickTest->setIsExtensionOfPreviousBlock();
 
    /********************* fallback Block *********************/
 
@@ -456,8 +469,7 @@ TR_JProfilingValue::addProfilingTrees(
       TR::TreeTop *testTree = TR::TreeTop::create(comp, insertionPoint, optionalTest);
 
       TR::Block *mapping = originalBlock->split(testTree->getNextTreeTop(), cfg, true, true);
-      if (extendBlocks)
-         mapping->setIsExtensionOfPreviousBlock();
+      mapping->setIsExtensionOfPreviousBlock();
       
       // Create the fallback block and link it to the optional test
       TR::Block *fallback = TR::Block::createEmptyBlock(comp, MAX_COLD_BLOCK_COUNT + 1);
@@ -477,13 +489,11 @@ TR_JProfilingValue::addProfilingTrees(
       TR::TreeTop::create(comp, fallback->getEntry(), TR::Node::create(example, TR::Goto, 0, quickTest->getEntry()));
       TR::TreeTop::create(comp, fallback->getEntry(), storeNode(comp, fallbackValue, storedValueSymRef));
       }
-   else if (extendBlocks)
-      quickTest->setIsExtensionOfPreviousBlock();
 
    /********************* quickTest Block *********************/
    // If blocks aren't being extended, its necessary to create a load
    TR::Node *quickTestValue = value;
-   if (!extendBlocks || optionalTest)
+   if (optionalTest)
       quickTestValue = TR::Node::createLoad(example, storedValueSymRef);
    quickTestValue = convertType(quickTestValue, roundedType);
 
@@ -503,25 +513,12 @@ TR_JProfilingValue::addProfilingTrees(
    TR::TreeTop *checkKeyTree = TR::TreeTop::create(comp, quickTest->getEntry(), checkKey);
 
    /********************* quickInc Block *********************/
-   // If we aren't extending the blocks, anchor stores for the table address and the value
    TR::Node *quickIncAddress = address;
    TR::Node *quickIncIndex = index;
-   if (!extendBlocks)
-      {
-      TR::SymbolReference *storedIndexSymRef = NULL;
-      TR::SymbolReference *storedAddressSymRef = NULL;
-      TR::TreeTop::create(comp, quickTest->getEntry(), storeNode(comp, index, storedIndexSymRef));
-      TR::TreeTop::create(comp, quickTest->getEntry(), storeNode(comp, address, storedAddressSymRef));
-      storedAddressSymRef->getSymbol()->setNotCollected();
-
-      quickIncIndex = TR::Node::createLoad(example, storedIndexSymRef);
-      quickIncAddress = TR::Node::createLoad(example, storedAddressSymRef);
-      }
 
    // Split the block, creating a new block to hold the successful quick increment
    TR::Block *quickInc = quickTest->split(checkKeyTree->getNextTreeTop(), cfg, true, true);
-   if (extendBlocks)
-      quickInc->setIsExtensionOfPreviousBlock();
+   quickInc->setIsExtensionOfPreviousBlock();
 
    if (trace)
       traceMsg(comp, "  Quick increment in block_%d\n", quickInc->getNumber());
@@ -554,18 +551,11 @@ TR_JProfilingValue::addProfilingTrees(
 
    /********************* slowInc Block *********************/
    TR::Node *slowIncIndex = convertType(lock, systemType, false);
-   if (!extendBlocks)
-      {
-      TR::SymbolReference *storedLockSymRef = NULL;
-      TR::TreeTop::create(comp, slowTest->getEntry(), storeNode(comp, slowIncIndex, storedLockSymRef));
-      slowIncIndex = TR::Node::createLoad(example, storedLockSymRef);
-      }
 
    // Split the block, creating a new block to hold the other increment
    TR::Block *slowInc = slowTest->split(slowTest->getExit(), cfg, true, true);
    lastTreeTop = slowInc->getExit();
-   if (extendBlocks)
-      slowInc->setIsExtensionOfPreviousBlock();
+   slowInc->setIsExtensionOfPreviousBlock();
 
    if (trace)
       traceMsg(comp, "  Slow increment in block_%d\n", slowInc->getNumber());
@@ -586,6 +576,9 @@ TR_JProfilingValue::addProfilingTrees(
    cfg->addEdge(slowTest, helper);
    cfg->addEdge(helper, mainlineReturn);
    checkTableLock->setBranchDestination(helper->getEntry());
+
+   cfg->addEdge(originalBlock, mainlineReturn);
+   checkActive->setBranchDestination(mainlineReturn->getEntry());
 
    if (trace)
       traceMsg(comp, "  Helper call in block_%d\n", helper->getNumber());
