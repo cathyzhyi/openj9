@@ -937,43 +937,19 @@ void TR::AMD64JNILinkage::releaseVMAccess(TR::Node *callNode)
    TR_X86OpCodes op;
 
    TR::Register *vmThreadReg = cg()->getMethodMetaDataRegister();
-   TR::Register *scratchReg1 = cg()->allocateRegister();
    TR::Register *scratchReg2 = cg()->allocateRegister();
-   TR::Register *scratchReg3 = NULL;
    TR_J9VMBase *fej9 = (TR_J9VMBase *)(fe());
-
-   generateRegMemInstruction(LRegMem(),
-                             callNode,
-                             scratchReg1,
-                             generateX86MemoryReference(vmThreadReg, fej9->thisThreadGetPublicFlagsOffset(), cg()),
-                             cg());
 
    TR::LabelSymbol *loopHeadLabel = generateLabelSymbol(cg());
 
    // Loop head
    //
-   generateLabelInstruction(LABEL, callNode, loopHeadLabel, cg());
-   generateRegRegInstruction(MOVRegReg(), callNode, scratchReg2, scratchReg1, cg());
+   //generateLabelInstruction(LABEL, callNode, loopHeadLabel, cg());
+   //generateRegRegInstruction(MOVRegReg(), callNode, scratchReg2, scratchReg1, cg());
 
    TR::LabelSymbol *longReleaseSnippetLabel = generateLabelSymbol(cg());
    TR::LabelSymbol *longReleaseRestartLabel = generateLabelSymbol(cg());
 
-   uintptrj_t mask = fej9->constReleaseVMAccessOutOfLineMask();
-
-   if (TR::Compiler->target.is64Bit() && (mask > 0x7fffffff))
-      {
-      if (!scratchReg3)
-         scratchReg3 = cg()->allocateRegister();
-
-      generateRegImm64Instruction(MOV8RegImm64, callNode, scratchReg3, mask, cg());
-      generateRegRegInstruction(TEST8RegReg, callNode, scratchReg1, scratchReg3, cg());
-      }
-   else
-      {
-      op = (mask <= 255) ? TEST1RegImm1 : TEST4RegImm4;
-      generateRegImmInstruction(op, callNode, scratchReg1, mask, cg());
-      }
-   generateLabelInstruction(JNE4, callNode, longReleaseSnippetLabel, cg());
 
    cg()->addSnippet(
       new (trHeapMemory()) TR::X86HelperCallSnippet(
@@ -983,15 +959,11 @@ void TR::AMD64JNILinkage::releaseVMAccess(TR::Node *callNode)
          longReleaseSnippetLabel,
          comp()->getSymRefTab()->findOrCreateReleaseVMAccessSymbolRef(comp()->getMethodSymbol())));
 
-   mask = fej9->constReleaseVMAccessMask();
+   uintptrj_t mask = fej9->constReleaseVMAccessMask();
 
    if (TR::Compiler->target.is64Bit() && (mask > 0x7fffffff))
       {
-      if (!scratchReg3)
-         scratchReg3 = cg()->allocateRegister();
-
-      generateRegImm64Instruction(MOV8RegImm64, callNode, scratchReg3, mask, cg());
-      generateRegRegInstruction(AND8RegReg, callNode, scratchReg2, scratchReg3, cg());
+      generateRegImm64Instruction(MOV8RegImm64, callNode, scratchReg2, mask, cg());
       }
    else
       {
@@ -999,7 +971,7 @@ void TR::AMD64JNILinkage::releaseVMAccess(TR::Node *callNode)
       generateRegImmInstruction(op, callNode, scratchReg2, mask, cg());
       }
 
-   op = TR::Compiler->target.isSMP() ? LCMPXCHGMemReg() : CMPXCHGMemReg(cg());
+   op = TR::Compiler->target.isSMP() ? LANDMemReg() : ANDMemReg(cg());
    generateMemRegInstruction(
       op,
       callNode,
@@ -1007,24 +979,27 @@ void TR::AMD64JNILinkage::releaseVMAccess(TR::Node *callNode)
       scratchReg2,
       cg());
 
-   generateLabelInstruction(JNE4, callNode, loopHeadLabel, cg());
+   /*
+   mask = fej9->constReleaseVMAccessOutOfLineMask();
+   if (TR::Compiler->target.is64Bit() && (mask > 0x7fffffff))
+      {
+      generateRegImm64Instruction(MOV8RegImm64, callNode, scratchReg2, mask, cg());
+      generateMemRegInstruction(TEST8MemReg, callNode, generateX86MemoryReference(vmThreadReg, fej9->thisThreadGetPublicFlagsOffset(), cg()), scratchReg2, cg());
+      }
+   else
+      {
+      op = TEST4MemImm4; // to modify
+      generateMemImmInstruction(op, callNode, generateX86MemoryReference(vmThreadReg, fej9->thisThreadGetPublicFlagsOffset(), cg()), mask, cg());
+      }
+   */
+   generateLabelInstruction(JNE4, callNode, longReleaseSnippetLabel, cg());
 
-   int8_t numDeps = scratchReg3 ? 3 : 2;
+   int8_t numDeps = 1; 
    TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(numDeps, numDeps, cg());
-   deps->addPreCondition(scratchReg1, TR::RealRegister::eax, cg());
-   deps->addPostCondition(scratchReg1, TR::RealRegister::eax, cg());
-   cg()->stopUsingRegister(scratchReg1);
 
    deps->addPreCondition(scratchReg2, TR::RealRegister::NoReg, cg());
    deps->addPostCondition(scratchReg2, TR::RealRegister::NoReg, cg());
    cg()->stopUsingRegister(scratchReg2);
-
-   if (scratchReg3)
-      {
-      deps->addPreCondition(scratchReg3, TR::RealRegister::NoReg, cg());
-      deps->addPostCondition(scratchReg3, TR::RealRegister::NoReg, cg());
-      cg()->stopUsingRegister(scratchReg3);
-      }
 
    deps->stopAddingConditions();
 
