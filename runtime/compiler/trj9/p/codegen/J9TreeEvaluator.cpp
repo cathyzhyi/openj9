@@ -6325,7 +6325,7 @@ static void genZeroInit(TR::CodeGenerator *cg, TR::Node *node, TR::Register *obj
       {
       TR_ExtraInfoForNew *initInfo = node->getSymbolReference()->getExtraInfo();
 
-      TR_ASSERT(initInfo && initInfo->zeroInitSlots && initInfo->numZeroInitSlots > 0, "Expecting valid init info");
+      TR_ASSERT(initInfo && initInfo->zeroInitSlots && initInfo->numZeroInitSlots() > 0, "Expecting valid init info");
 
       TR_BitVectorIterator bvi(*initInfo->zeroInitSlots);
       if (TR::Compiler->target.is64Bit())
@@ -6431,8 +6431,8 @@ TR::Register *outlinedHelperNewEvaluator(TR::Node *node, TR::CodeGenerator *cg)
    // Only zero-init inline if the object size is known and relatively small, otherwise do in the helper
    const int32_t maxInitSlots = 8;
    const bool useInitInfo = node->getSymbolReference()->getExtraInfo() && (node->getSymbolReference()->getExtraInfo())->zeroInitSlots
-         && (node->getSymbolReference()->getExtraInfo())->numZeroInitSlots > 0
-         && (node->getSymbolReference()->getExtraInfo())->numZeroInitSlots <= maxInitSlots;
+         && node->getSymbolReference()->getExtraInfo()->numZeroInitSlots() > 0
+         && (node->getSymbolReference()->getExtraInfo())->numZeroInitSlots() <= maxInitSlots;
    const bool doZeroInitInline = needsZeroInit && !isVariableLen && (useInitInfo || (objectSizeBytes <= TR::Compiler->om.sizeofReferenceAddress() * maxInitSlots));
 
    TR::Instruction *appendInstruction = cg->getAppendInstruction();
@@ -6847,11 +6847,11 @@ TR::Register *J9::Power::TreeEvaluator::VMnewEvaluator(TR::Node *node, TR::CodeG
 
          static bool disableFastArrayZeroInit = (feGetEnv("TR_DisableFastArrayZeroInit") != NULL);
 
-         if (!node->canSkipZeroInitialization() && (initInfo == NULL || initInfo->numZeroInitSlots > 0))
+         if (!node->canSkipZeroInitialization() && (initInfo == NULL || initInfo->numZeroInitSlots() > 0))
             {
             if (!isVariableLen)
                {
-               if (initInfo != NULL && initInfo->zeroInitSlots != NULL && initInfo->numZeroInitSlots <= 9 && objectSize <= UPPER_IMMED)
+               if (initInfo != NULL && initInfo->zeroInitSlots != NULL && initInfo->numZeroInitSlots() <= 9 && objectSize <= UPPER_IMMED)
                   {
                   TR_BitVectorIterator bvi(*initInfo->zeroInitSlots);
 

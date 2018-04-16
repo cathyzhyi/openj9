@@ -1510,7 +1510,7 @@ void TR_NewInitialization::modifyTrees(Candidate *candidate)
       // reference associated with the mergenew node.
       //
       extraInfo = new (trHeapMemory()) TR_ExtraInfoForNew;
-      extraInfo->numZeroInitSlots = 0;
+      extraInfo->totalSlots = allocationSize/4;
       extraInfo->zeroInitSlots = new (trHeapMemory()) TR_BitVector(allocationSize/4, trMemory());
 
       symRef = new (trHeapMemory()) TR::SymbolReference(comp()->getSymRefTab(), *candidate->node->getSymbolReference(), 0);
@@ -1541,7 +1541,7 @@ void TR_NewInitialization::modifyTrees(Candidate *candidate)
                   mergeNode->setAndIncChild(i++, c->node);
                   TR::TransformUtil::removeTree(comp(), c->treeTop);
 
-                  extraInfo->numZeroInitSlots += buildInitializationInfo(c, extraInfo->zeroInitSlots, startWord);
+                  buildInitializationInfo(c, extraInfo->zeroInitSlots, startWord);
                   int32_t objectSize = (c->startOffset + c->size + 3) / 4;
                   c->startOffset = startWord*4;
                   startWord += objectSize;
@@ -1558,7 +1558,7 @@ void TR_NewInitialization::modifyTrees(Candidate *candidate)
                mergeNode->setAndIncChild(i++, c->node);
                TR::TransformUtil::removeTree(comp(), c->treeTop);
 
-               extraInfo->numZeroInitSlots += buildInitializationInfo(c, extraInfo->zeroInitSlots, startWord);
+               buildInitializationInfo(c, extraInfo->zeroInitSlots, startWord);
                int32_t objectSize = (c->startOffset + c->size + 3) / 4;
                c->startOffset = startWord*4;
                startWord += objectSize;
@@ -1580,19 +1580,18 @@ void TR_NewInitialization::modifyTrees(Candidate *candidate)
 
    else
       {
+      if (candidate->node->canSkipZeroInitialization())
+         {
+         candidate->treeTop = NULL;
+         return;
+         }
       // Change the symbol reference on the allocation node so that it can hold
       // the zero-initialization information.
       //
       extraInfo = new (trHeapMemory()) TR_ExtraInfoForNew;
-      if (candidate->node->canSkipZeroInitialization())
-         {
-         extraInfo->numZeroInitSlots = 0;
-         //printf("Skip zero init for new in %s\n", comp()->signature());
-         }
-      else
-         extraInfo->numZeroInitSlots = candidate->numUninitializedWords;
-      if (candidate->uninitializedWords &&
-          !candidate->node->canSkipZeroInitialization())
+      extraInfo->totalSlots = allocationSize/4;
+
+      if (candidate->uninitializedWords)
          {
          extraInfo->zeroInitSlots = new (trHeapMemory()) TR_BitVector(allocationSize, trMemory());
          *extraInfo->zeroInitSlots = *candidate->uninitializedWords;
@@ -1608,7 +1607,7 @@ void TR_NewInitialization::modifyTrees(Candidate *candidate)
       }
    }
 
-int32_t TR_NewInitialization::buildInitializationInfo(Candidate *c, TR_BitVector *wordsToBeInitialized, int32_t startWord)
+void TR_NewInitialization::buildInitializationInfo(Candidate *c, TR_BitVector *wordsToBeInitialized, int32_t startWord)
    {
    int32_t numWordsInitialized = 0;
 
@@ -1619,7 +1618,6 @@ int32_t TR_NewInitialization::buildInitializationInfo(Candidate *c, TR_BitVector
       for (int32_t i = ((c->size+3)/4)-1; i >= 0; i--)
          {
          wordsToBeInitialized->set(startWord + (c->startOffset/4) + i);
-         numWordsInitialized++;
          }
       }
    else if (c->numUninitializedWords)
@@ -1628,10 +1626,8 @@ int32_t TR_NewInitialization::buildInitializationInfo(Candidate *c, TR_BitVector
       while (bvi.hasMoreElements())
          {
          wordsToBeInitialized->set(startWord + (c->startOffset/4) + bvi.getNextElement());
-         numWordsInitialized++;
          }
       }
-   return numWordsInitialized;
    }
 
 void TR_NewInitialization::modifyReferences(Candidate *candidate, Candidate *startOfNextMergeSequence, Candidate * startCandidate, TR::TreeTop *mergeTree)

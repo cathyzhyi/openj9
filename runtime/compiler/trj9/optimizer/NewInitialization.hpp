@@ -128,7 +128,7 @@ class TR_NewInitialization : public TR::Optimization
    bool    changeNewCandidates();
    void    inlineCalls();
    void    modifyTrees(Candidate *candidate);
-   int32_t buildInitializationInfo(Candidate *c, TR_BitVector *wordsToBeInitialized, int32_t startWord);
+   void buildInitializationInfo(Candidate *c, TR_BitVector *wordsToBeInitialized, int32_t startWord);
    void    modifyReferences(Candidate *candidate, Candidate *startOfNextMergeSequence, Candidate *, TR::TreeTop *mergeTree);
    void    modifyReferences(Candidate *candidate, Candidate *startOfNextMergeSequence, Candidate *, TR::Node *node);
 

@@ -9424,14 +9424,11 @@ J9::X86::TreeEvaluator::VMnewEvaluator(
       }
    else if (initInfo)
       {
-      if (node->canSkipZeroInitialization())
+      if (node->canSkipZeroInitialization() || 
+            initInfo->zeroInitSlots == NULL || 
+            initInfo->numZeroInitSlots() == 0)
          {
          initInfo->zeroInitSlots = NULL;
-         initInfo->numZeroInitSlots = 0;
-         skipOutlineZeroInit = true;
-         }
-      else if (initInfo->numZeroInitSlots <= 0)
-         {
          skipOutlineZeroInit = true;
          }
       }
@@ -9568,7 +9565,7 @@ J9::X86::TreeEvaluator::VMnewEvaluator(
          // If there are too many words to be individually initialized, initialize
          // them all
          //
-         if (initInfo->numZeroInitSlots >= maxZeroInitWordsPerIteration*2-1)
+         if (initInfo->numZeroInitSlots() >= maxZeroInitWordsPerIteration*2-1)
             initInfo->zeroInitSlots = NULL;
          }
 
@@ -9606,7 +9603,7 @@ J9::X86::TreeEvaluator::VMnewEvaluator(
          else
             monitorSlotIsInitialized = true;
          }
-      else if ((!initInfo || initInfo->numZeroInitSlots > 0) &&
+      else if ((!initInfo || initInfo->numZeroInitSlots() > 0) &&
                !node->canSkipZeroInitialization() && !outlineNew)
          {
          // Initialize all slots

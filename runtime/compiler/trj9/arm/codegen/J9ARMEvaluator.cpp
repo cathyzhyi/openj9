@@ -1374,12 +1374,12 @@ TR::Register *OMR::ARM::TreeEvaluator::VMnewEvaluator(TR::Node *node, TR::CodeGe
    TR_ExtraInfoForNew *initInfo = node->getSymbolReference()->getExtraInfo();
    TR::MemoryReference *tempMR;
 
-   if (!node->canSkipZeroInitialization() && (initInfo == NULL || initInfo->numZeroInitSlots > 0))
+   if (!node->canSkipZeroInitialization() && (initInfo == NULL || initInfo->numZeroInitSlots() > 0))
       {
       if (!isVariableLen)
          {
          if (initInfo!=NULL && initInfo->zeroInitSlots!=NULL &&
-             initInfo->numZeroInitSlots<=9 && objectSize<=UPPER_IMMED12)
+             initInfo->numZeroInitSlots() <=9 && objectSize<=UPPER_IMMED12)
             {
             TR_BitVectorIterator bvi(*initInfo->zeroInitSlots);
 
