@@ -1143,7 +1143,7 @@ TR_J9EstimateCodeSize::realEstimateCodeSize(TR_CallTarget *calltarget, TR_CallSt
    bool wasPeekingSuccessfull = false;
 
    const static bool debugMHInlineWithOutPeeking = feGetEnv("TR_DebugMHInlineWithOutPeeking") ? true: false;
-   bool mhInlineWithPeeking =  !comp()->getOption(TR_DisableMHInlineWithoutPeeking); // TODO: turn off without peeking by default for now, will flip the option after sufficient testing
+   bool mhInlineWithPeeking =  comp()->getOption(TR_DisableMHInlineWithoutPeeking); // TODO: turn off without peeking by default for now, will flip the option after sufficient testing
    bool isCalleeMethodHandleThunk = calltarget->_calleeMethod->convertToMethod()->isArchetypeSpecimen();
    if (nph.doPeeking() && recurseDown ||
        isCalleeMethodHandleThunk && mhInlineWithPeeking)
