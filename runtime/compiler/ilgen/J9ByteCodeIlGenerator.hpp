@@ -348,6 +348,16 @@ private:
    bool replaceField(TR::Node* node, char* destClass, char* destFieldName, char* destFieldSignature, int ParmIndex);
    bool replaceStatic(TR::Node* node, char* dstClassName, char* staticName, char* type);
 
+   /*
+    *  \brief create an empty block and it into CFG
+    *
+    *  \param node
+    *       the node whose byte code info will be used to create the new block
+    *
+    *  \note
+    *       the new block is appended after the last tree top
+    */
+   TR::Block *createBlockAndAddToCFG(TR::Node *node);
    uintptr_t walkReferenceChain(TR::Node *node, uintptr_t receiver);
 #if defined(J9VM_OPT_JITSERVER)
    void packReferenceChainOffsets(TR::Node *node, std::vector<uintptr_t>& listOfOffsets);
