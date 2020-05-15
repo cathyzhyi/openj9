@@ -743,6 +743,21 @@ J9::ClassEnv::getROMConstantPool(TR::Compilation *comp, TR_OpaqueClassBlock *cla
    }
 
 bool
+J9::ClassEnv::isValueTypeClassFlattened(TR_OpaqueClassBlock *clazz)
+   {
+   // TODO this may change in the future
+   J9Class *j9class = reinterpret_cast<J9Class*>(clazz);
+   return J9_IS_J9CLASS_FLATTENED(j9class);
+   }
+
+bool
+J9::ClassEnv::classContainsFlattenedFields(TR_OpaqueClassBlock *clazz)
+   {
+   J9Class *j9class = reinterpret_cast<J9Class*>(clazz);
+   return j9class->flattenedClassCache != NULL;
+   }
+
+bool
 J9::ClassEnv::isValueTypeClass(TR_OpaqueClassBlock *clazz)
    {
 #if defined(J9VM_OPT_JITSERVER)

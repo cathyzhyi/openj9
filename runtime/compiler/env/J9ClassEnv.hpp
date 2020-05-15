@@ -92,6 +92,8 @@ public:
    bool isInterfaceClass(TR::Compilation *comp, TR_OpaqueClassBlock *clazzPointer);
    bool isValueTypeClass(TR_OpaqueClassBlock *);
    bool isValueTypeClassFlattened(TR_OpaqueClassBlock *);
+   bool classContainsFlattenedFields(TR_OpaqueClassBlock *clazz);
+   bool isFieldFlattened(TR::Compilation *comp, TR::SymbolReference * symRef);
 
    /**
     * \brief
