@@ -91,6 +91,7 @@ public:
    bool isAbstractClass(TR::Compilation *comp, TR_OpaqueClassBlock *clazzPointer);
    bool isInterfaceClass(TR::Compilation *comp, TR_OpaqueClassBlock *clazzPointer);
    bool isValueTypeClass(TR_OpaqueClassBlock *);
+   bool isValueTypeClassFlattened(TR_OpaqueClassBlock *);
 
    /**
     * \brief
@@ -196,7 +197,6 @@ public:
     */
    bool containsZeroOrOneConcreteClass(TR::Compilation *comp, List<TR_PersistentClassInfo>* subClasses);
    };
-
 }
 
 #endif

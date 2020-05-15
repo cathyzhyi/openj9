@@ -5062,6 +5062,39 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
    TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type): comp()->il.opCodeForIndirectLoad(type);
    dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
 
+   /*
+    * if (resolved)
+    *    check if the field flattened
+    *       visit transitive field recursively
+    * if (unresolved && isFieldValuetype) // need to be able to check fieldRomFieldRef modifiers
+    *    abort compilation
+    *
+    */
+   if (!symRef->isUnresolved())
+      {
+      bool isStatic;
+      TR_ResolvedJ9Method * j9method = static_cast<TR_ResolvedJ9Method *>(symRef->getOwningMethod(comp()));
+      TR_OpaqueClassBlock * containingClass = j9method->definingClassFromCPFieldRef(comp(), symRef->getCPIndex(), isStatic);
+      //TR_OpaqueClassBlock *fieldClass = fej9()->getClassFromSignature(fieldSignature, (int32_t)strlen(fieldSignature),
+      TR_ASSERT_FATAL(containingClass, "j9class can't be NULL for resolved field %s\n", comp()->signature());
+      traceMsg(comp(), "to check if field is flattened");
+      if (TR::Compiler->cls.isFieldFlattened(comp(), symRef))
+         {
+         //traceMsg(comp(), "is valuetype class %p containingClass %p\n", clazz, containingClass);
+         const TR::TypeLayout *containingClassLayout = comp()->typeLayout(containingClass);
+         comp()->failCompilation<TR::UnsupportedValueTypeOperation>("loadInstance of value type field");
+         }
+      }
+   else {
+      int len;
+      char * sig = _methodSymbol->getResolvedMethod()->fieldSignatureChars(symRef->getCPIndex(), len);
+      if (sig[0] == 'Q')
+         {
+         // TODO: insert debug counters here
+         comp()->failCompilation<TR::UnsupportedValueTypeOperation>("Unresolved loadInstance of value type field");
+         }
+      }
+
    // loading cleanroom BigDecimal long field?
    // performed only when DFP isn't disabled, and the target
    // is DFP enabled (i.e. Power6, zSeries6)

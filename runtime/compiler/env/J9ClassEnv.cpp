@@ -38,6 +38,9 @@
 #include "j9fieldsInfo.h"
 #include "rommeth.h"
 #include "runtime/RuntimeAssumptions.hpp"
+#include "j9nonbuilder.h"
+#include "env/j9method.h"
+#include "il/SymbolReference.hpp"
 
 class TR_PersistentClassInfo;
 template <typename ListKind> class List;
@@ -417,24 +420,122 @@ J9::ClassEnv::isAnonymousClass(TR::Compilation *comp, TR_OpaqueClassBlock *clazz
    return comp->fej9()->isAnonymousClass(clazz);
    }
 
-const TR::TypeLayout*
-J9::ClassEnv::enumerateFields(TR::Region& region, TR_OpaqueClassBlock * opaqueClazz, TR::Compilation *comp)
-   {  
-   J9Class *clazz = (J9Class*)opaqueClazz;
-   TR_VMFieldsInfo fieldsInfo(comp, clazz, 1, stackAlloc);
-   ListIterator<TR_VMField> iter(fieldsInfo.getFields());
-   TR::TypeLayoutBuilder tlb(region);
-   for (TR_VMField *field = iter.getFirst(); field; field = iter.getNext())
+extern J9Class *getFieldType_VMhelper(const char *fieldName, J9Class *definingClass)
+   {
+   UDATA numberOfFlattenedFields = definingClass->flattenedClassCache->numberOfEntries;
+   for (UDATA i = 0; i < numberOfFlattenedFields; i++)
+      {
+      J9FlattenedClassCacheEntry *entry = J9_VM_FCC_ENTRY_FROM_CLASS(definingClass, i);
+      J9ROMFieldShape *entryField = entry->field;
+      J9UTF8 *name = J9ROMFIELDSHAPE_NAME(entryField);
+      int length = J9UTF8_LENGTH(name);
+      if (strlen(fieldName) == length &&
+         !strncmp(fieldName, utf8Data(name), length))
+         return entry->clazz;
+      }
+   TR_ASSERT_FATAL(false, "field %s doesn't exist in given class %p\n", fieldName, definingClass);
+   }
+
+static bool isFieldFlattened_VMHelper(const char *fieldName, J9Class *definingClass)
+   {
+   UDATA numberOfFlattenedFields = definingClass->flattenedClassCache->numberOfEntries;
+   for (UDATA i = 0; i < numberOfFlattenedFields; i++)
+      {
+      J9FlattenedClassCacheEntry *entry = J9_VM_FCC_ENTRY_FROM_CLASS(definingClass, i);
+      J9ROMFieldShape *entryField = entry->field;
+      J9UTF8 *name = J9ROMFIELDSHAPE_NAME(entryField);
+      int length = J9UTF8_LENGTH(name);
+      if (strlen(fieldName) == length &&
+         !strncmp(fieldName, utf8Data(name), length))
+         {
+         return J9_ARE_ANY_BITS_SET(entry->clazz->classFlags, J9ClassIsFlattened);
+         }
+      }
+   return false;
+   }
+
+extern int getFieldOffset_VMHelper(const char *fieldName, J9Class *definingClass)
+   {
+   J9Class *j9class = reinterpret_cast<J9Class*>(definingClass);
+   UDATA numberOfFlattenedFields = j9class->flattenedClassCache->numberOfEntries;
+   for (UDATA i = 0; i < numberOfFlattenedFields; i++)
+      {
+      J9FlattenedClassCacheEntry *entry = J9_VM_FCC_ENTRY_FROM_CLASS(j9class, i);
+      J9ROMFieldShape *entryField = entry->field;
+      J9UTF8 *name = J9ROMFIELDSHAPE_NAME(entryField);
+      int length = J9UTF8_LENGTH(name);
+      if (strlen(fieldName) == length &&
+         !strncmp(fieldName, utf8Data(name), length))
+         return entry->offset;
+      }
+   TR_ASSERT_FATAL(false, "field %s doesn't exist in given class %p\n", fieldName, definingClass);
+   }
+
+bool
+J9::ClassEnv::isFieldFlattened(TR::Compilation *comp, TR::SymbolReference * symRef)
+   {
+   TR_ResolvedJ9Method * j9method = static_cast<TR_ResolvedJ9Method *>(symRef->getOwningMethod(comp));
+   bool isStatic;
+   TR_OpaqueClassBlock * containingClass = j9method->definingClassFromCPFieldRef(comp, symRef->getCPIndex(), isStatic);
+   int32_t nameLength ;
+   const char * fieldname = j9method->fieldNameChars(symRef->getCPIndex(), nameLength);
+   char fieldNameBuffer[50];
+   strncpy(fieldNameBuffer, fieldname, nameLength);
+   fieldNameBuffer[nameLength]='\0';
+   return isFieldFlattened_VMHelper(fieldNameBuffer, reinterpret_cast<J9Class *>(containingClass));
+   }
+
+/*
+ * \param prefix
+ *    prefix is ended with `.`
+ */
+char * mergeFieldNames(char * prefix, char * fieldName, bool withDotAtTheEnd, TR::Region &region)
+   {
+   int prefixLength = prefix ? strlen(prefix) : 0;
+   int nameLength = strlen(fieldName);
+   int mergedLength = prefixLength;
+   mergedLength+= nameLength;
+   if (withDotAtTheEnd)
+      mergedLength++;
+   mergedLength++; /* for adding \0 at the end */;
+
+   char * newName = new (region) char[mergedLength];
+   if (prefixLength > 0)
+      strncpy(newName, prefix, prefixLength);
+   strncpy(newName + prefixLength, fieldName, nameLength);
+   if (withDotAtTheEnd)
+      newName[mergedLength-2] = '.';
+   newName[mergedLength-1] = '\0';
+   return newName;
+   }
+
+void addEntryForField(TR_VMField *field, TR::TypeLayoutBuilder &tlb, TR::Region& region, J9Class * definingClass, char * prefix, int offsetBase, TR::Compilation * comp)
+   {
+   if (isFieldFlattened_VMHelper(field->name, definingClass))
+      {
+      traceMsg(comp, "field %s is flattened\n", field->name);
+      char * newPrefix = mergeFieldNames(prefix, field->name, true /*withDotAtTheEnd*/, comp->trMemory()->currentStackRegion());
+      int newOffsetBase = field->offset + offsetBase;
+      traceMsg(comp, "offset from TR_VMField %d, offset from fcc %d\n", field->offset, getFieldOffset_VMHelper(field->name, definingClass));
+      J9Class *fieldClass = getFieldType_VMhelper(field->name, definingClass);
+      TR_VMFieldsInfo fieldsInfo(comp, fieldClass, 1, stackAlloc);
+      ListIterator<TR_VMField> iter(fieldsInfo.getFields());
+      for (TR_VMField *childField = iter.getFirst(); childField; childField = iter.getNext())
+         {
+         addEntryForField(childField, tlb, region, fieldClass, newPrefix, newOffsetBase, comp);
+         }
+      }
+   else
       {
       char *signature = field->signature;
       char charSignature = *signature;
       TR::DataType dataType;
       switch(charSignature)
          {
-         case 'Z': 
-         case 'B': 
-         case 'C': 
-         case 'S': 
+         case 'Z':
+         case 'B':
+         case 'C':
+         case 'S':
          case 'I':
             {
             dataType = TR::Int32;
@@ -464,15 +565,28 @@ J9::ClassEnv::enumerateFields(TR::Region& region, TR_OpaqueClassBlock * opaqueCl
             break;
             }
          }
-      size_t nameSize = strlen(field->name)+1;
-      char *fieldName = new (region) char[nameSize];
-      strncpy(fieldName, field->name, nameSize);
-      TR_ASSERT_FATAL(fieldName[nameSize-1] == '\0', "fieldName buffer was too small.");
-      int32_t offset = field->offset + TR::Compiler->om.objectHeaderSizeInBytes();
+
+
+      char *fieldName = mergeFieldNames(prefix, field->name, false /* withDotAtTheEnd */ , region);
+      int32_t offset = offsetBase + field->offset + TR::Compiler->om.objectHeaderSizeInBytes();
       bool isVolatile = (field->modifiers & J9AccVolatile) ? true : false;
       bool isPrivate = (field->modifiers & J9AccPrivate) ? true : false;
       bool isFinal = (field->modifiers & J9AccFinal) ? true : false;
+      traceMsg(comp, "type layout definingClass %p field: %s, field offset: %d offsetBase %d\n", definingClass, fieldName, field->offset, offsetBase);
       tlb.add(TR::TypeLayoutEntry(dataType, offset, fieldName, isVolatile, isPrivate, isFinal, signature));
+      }
+   }
+
+const TR::TypeLayout*
+J9::ClassEnv::enumerateFields(TR::Region& region, TR_OpaqueClassBlock * opaqueClazz, TR::Compilation *comp)
+   {
+   TR_VMFieldsInfo fieldsInfo(comp, reinterpret_cast<J9Class*>(opaqueClazz), 1, stackAlloc);
+   ListIterator<TR_VMField> iter(fieldsInfo.getFields());
+   TR::TypeLayoutBuilder tlb(region);
+   //findIndexInFlattenedClassCache
+   for (TR_VMField *field = iter.getFirst(); field; field = iter.getNext())
+      {
+      addEntryForField(field, tlb, region, reinterpret_cast<J9Class* >(opaqueClazz), NULL, 0, comp);
       }
    return tlb.build();
    }
@@ -595,7 +709,7 @@ J9::ClassEnv::getROMClassRefName(TR::Compilation *comp, TR_OpaqueClassBlock *cla
       TR::CompilationInfoPerThread *compInfoPT = TR::compInfoPT;
       char *name = NULL;
 
-      OMR::CriticalSection getRemoteROMClass(compInfoPT->getClientData()->getROMMapMonitor()); 
+      OMR::CriticalSection getRemoteROMClass(compInfoPT->getClientData()->getROMMapMonitor());
       auto &classMap = compInfoPT->getClientData()->getROMClassMap();
       auto it = classMap.find(reinterpret_cast<J9Class *>(clazz));
       auto &classInfo = it->second;
@@ -673,7 +787,7 @@ J9::ClassEnv::isZeroInitializable(TR_OpaqueClassBlock *clazz)
    return (self()->classFlagsValue(clazz) & J9ClassContainsUnflattenedFlattenables) == 0;
    }
 
-bool 
+bool
 J9::ClassEnv::containsZeroOrOneConcreteClass(TR::Compilation *comp, List<TR_PersistentClassInfo>* subClasses)
    {
    int count = 0;
@@ -682,7 +796,7 @@ J9::ClassEnv::containsZeroOrOneConcreteClass(TR::Compilation *comp, List<TR_Pers
       {
       ListIterator<TR_PersistentClassInfo> j(subClasses);
       TR_ScratchList<TR_PersistentClassInfo> subClassesNotCached(comp->trMemory());
-   
+
       // Process classes cached at the server first
       ClientSessionData * clientData = TR::compInfoPT->getClientData();
       for (TR_PersistentClassInfo *ptClassInfo = j.getFirst(); ptClassInfo; ptClassInfo = j.getNext())
