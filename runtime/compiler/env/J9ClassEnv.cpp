@@ -474,6 +474,8 @@ extern int getFieldOffset_VMHelper(const char *fieldName, J9Class *definingClass
 bool
 J9::ClassEnv::isFieldFlattened(TR::Compilation *comp, TR::SymbolReference * symRef)
    {
+   if (symRef->getCPIndex() == -1)
+      return false;
    TR_ResolvedJ9Method * j9method = static_cast<TR_ResolvedJ9Method *>(symRef->getOwningMethod(comp));
    bool isStatic;
    TR_OpaqueClassBlock * containingClass = j9method->definingClassFromCPFieldRef(comp, symRef->getCPIndex(), isStatic);

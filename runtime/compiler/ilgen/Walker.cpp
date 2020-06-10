@@ -5039,6 +5039,19 @@ TR_J9ByteCodeIlGenerator::loadInstance(int32_t cpIndex)
    loadInstance(symRef);
    }
 
+static
+void getTopLevelPrefixForFlattenedFields(TR::SymbolReference *symRef, char buf[], int32_t &prefixLen)
+   {
+   int32_t len;
+   const char * fieldNameChars = symRef->getOwningMethod(TR::comp())->fieldNameChars(symRef->getCPIndex(), len);
+   strncpy(buf, fieldNameChars, len);
+   prefixLen += len;
+   buf[prefixLen] = '.';
+   prefixLen++;
+   buf[prefixLen] = '\0';
+   //traceMsg(comp(), " field prefix %s prefixLen %d\n", buf, prefixLen);
+   }
+
 void
 TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
    {
@@ -5057,11 +5070,6 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
          }
       }
 
-   TR::Node * load, *dummyLoad;
-
-   TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type): comp()->il.opCodeForIndirectLoad(type);
-   dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
-
    /*
     * if (resolved)
     *    check if the field flattened
@@ -5075,17 +5083,51 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
       bool isStatic;
       TR_ResolvedJ9Method * j9method = static_cast<TR_ResolvedJ9Method *>(symRef->getOwningMethod(comp()));
       TR_OpaqueClassBlock * containingClass = j9method->definingClassFromCPFieldRef(comp(), symRef->getCPIndex(), isStatic);
-      //TR_OpaqueClassBlock *fieldClass = fej9()->getClassFromSignature(fieldSignature, (int32_t)strlen(fieldSignature),
       TR_ASSERT_FATAL(containingClass, "j9class can't be NULL for resolved field %s\n", comp()->signature());
-      traceMsg(comp(), "to check if field is flattened");
       if (TR::Compiler->cls.isFieldFlattened(comp(), symRef))
          {
-         //traceMsg(comp(), "is valuetype class %p containingClass %p\n", clazz, containingClass);
+         int len;
+         const char *fieldClassChars = symRef->getOwningMethod(comp())->fieldSignatureChars(symRef->getCPIndex(), len);
+         TR_OpaqueClassBlock * fieldClass = fej9()->getClassFromSignature(fieldClassChars, len, symRef->getOwningMethod(comp()));
+         loadClassObject(fieldClass);
+
+         char buf[50];
+         int32_t prefixLen;
+         getTopLevelPrefixForFlattenedFields(symRef, buf, prefixLen);
+
          const TR::TypeLayout *containingClassLayout = comp()->typeLayout(containingClass);
-         comp()->failCompilation<TR::UnsupportedValueTypeOperation>("loadInstance of value type field");
+         size_t fieldCount = containingClassLayout->count();
+         int flattenedFieldCount = 0;
+         for (size_t idx = 0; idx < fieldCount; idx++)
+            {
+            const TR::TypeLayoutEntry &fieldEntry = containingClassLayout->entry(idx);
+            if (!strncmp(buf, fieldEntry._fieldname, prefixLen))
+               {
+               auto* fieldSymRef = comp()->getSymRefTab()->findOrFabricateShadowSymbol(containingClass,
+                                                                           fieldEntry._datatype,
+                                                                           fieldEntry._offset,
+                                                                           fieldEntry._isVolatile,
+                                                                           fieldEntry._isPrivate,
+                                                                           fieldEntry._isFinal,
+                                                                           fieldEntry._fieldname,
+                                                                           fieldEntry._typeSignature
+                                                                           );
+               push(address);
+               loadInstance(fieldSymRef);
+               flattenedFieldCount++;
+               }
+            }
+
+         TR::Node *newValueNode = genNodeAndPopChildren(TR::newvalue, flattenedFieldCount + 1, symRefTab()->findOrCreateNewValueSymbolRef(_methodSymbol));
+         newValueNode->setIdentityless(true);
+         genTreeTop(newValueNode);
+         push(newValueNode);
+         genFlush(0);
+         return;
          }
       }
-   else {
+   else
+      {
       int len;
       char * sig = _methodSymbol->getResolvedMethod()->fieldSignatureChars(symRef->getCPIndex(), len);
       if (sig[0] == 'Q')
@@ -5094,6 +5136,11 @@ TR_J9ByteCodeIlGenerator::loadInstance(TR::SymbolReference * symRef)
          comp()->failCompilation<TR::UnsupportedValueTypeOperation>("Unresolved loadInstance of value type field");
          }
       }
+
+   TR::Node * load, *dummyLoad;
+
+   TR::ILOpCodes op = _generateReadBarriersForFieldWatch ? comp()->il.opCodeForIndirectReadBarrier(type): comp()->il.opCodeForIndirectLoad(type);
+   dummyLoad = load = TR::Node::createWithSymRef(op, 1, 1, address, symRef);
 
    // loading cleanroom BigDecimal long field?
    // performed only when DFP isn't disabled, and the target
